@@ -1,0 +1,787 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Recast — image format converter</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,400..700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#D7DCE1;
+    --panel:#FBFBFA;
+    --ink:#15202A;
+    --muted:#5B6976;
+    --line:#B9C2CA;
+    --accent:#0E7C86;
+    --accent-deep:#0A5A62;
+    --warn:#A8560B;
+    --checker: repeating-conic-gradient(#ffffff 0% 25%, #E2E7EB 0% 50%) 50% / 16px 16px;
+    --sans:"Archivo", "Helvetica Neue", Arial, sans-serif;
+    --mono:"IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  }
+
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    background:var(--paper);
+    color:var(--ink);
+    font-family:var(--sans);
+    font-size:16px;
+    line-height:1.5;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  .wrap{max-width:1080px;margin:0 auto;padding:40px 24px 80px}
+
+  /* ---------- masthead ---------- */
+  .masthead{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px 28px;margin-bottom:28px}
+  .wordmark{
+    font-family:var(--sans);
+    font-variation-settings:"wdth" 122,"wght" 700;
+    font-size:clamp(34px,6vw,52px);
+    letter-spacing:-0.02em;
+    line-height:1;
+    margin:0;
+  }
+  .wordmark .dot{color:var(--accent)}
+  .standfirst{margin:0 0 4px;color:var(--muted);max-width:46ch}
+
+  /* ---------- drop stage ---------- */
+  .stage{
+    position:relative;
+    border:1px solid var(--line);
+    border-radius:3px;
+    background:var(--checker);
+    padding:64px 24px;
+    text-align:center;
+    transition:padding .18s ease, background-color .18s ease;
+  }
+  .stage::after{
+    content:"";position:absolute;inset:10px;
+    border:1px dashed var(--line);border-radius:2px;pointer-events:none;
+    transition:border-color .18s ease;
+  }
+  .stage.drag{background-color:rgba(14,124,134,.06)}
+  .stage.drag::after{border-color:var(--accent)}
+  .has-files .stage{padding:22px 24px}
+  .stage h2{
+    font-variation-settings:"wdth" 112,"wght" 600;
+    font-size:clamp(20px,3vw,28px);letter-spacing:-0.01em;margin:0 0 6px;
+  }
+  .has-files .stage h2{font-size:18px}
+  .has-files .stage .formats{display:none}
+  .formats{margin:14px 0 0;color:var(--muted);font-size:13px}
+  .stage p.lead{margin:0 0 18px;color:var(--muted)}
+  .has-files .stage p.lead{display:none}
+
+  /* ---------- controls + list ---------- */
+  .workbench{display:grid;grid-template-columns:1fr 300px;gap:24px;margin-top:24px}
+  @media (max-width:800px){ .workbench{grid-template-columns:1fr} }
+  .workbench[hidden]{display:none}
+
+  .panel{
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:3px;
+    padding:20px;
+  }
+  .panel h3{
+    margin:0 0 16px;font-size:15px;
+    font-variation-settings:"wdth" 108,"wght" 600;
+    letter-spacing:.01em;
+  }
+  .side{align-self:start;position:sticky;top:24px}
+
+  .field{margin-bottom:18px}
+  .field:last-child{margin-bottom:0}
+  label{display:block;font-size:13px;color:var(--muted);margin-bottom:6px}
+
+  select, .btn, input[type="color"]{font-family:inherit}
+
+  select{
+    width:100%;appearance:none;
+    background:#fff url("data:image/svg+xml;charset=utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%2315202A' stroke-width='1.6'/%3E%3C/svg%3E") no-repeat right 12px center/12px 8px;
+    border:1px solid var(--line);border-radius:2px;
+    padding:10px 36px 10px 12px;font-size:15px;color:var(--ink);
+  }
+  select:disabled{color:var(--muted);background-color:#F1F3F5}
+
+  input[type="range"]{width:100%;accent-color:var(--accent)}
+  .rangerow{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+  .rangerow output{font-family:var(--mono);font-size:13px}
+
+  .swatchrow{display:flex;align-items:center;gap:10px}
+  input[type="color"]{
+    inline-size:38px;block-size:32px;padding:2px;
+    border:1px solid var(--line);border-radius:2px;background:#fff;cursor:pointer;
+  }
+  .hint{font-size:12.5px;color:var(--muted);margin:8px 0 0;line-height:1.45}
+  .hint.warn{color:var(--warn)}
+
+  .btn{
+    display:inline-flex;align-items:center;gap:8px;
+    border:1px solid var(--accent-deep);background:var(--accent);color:#fff;
+    padding:10px 18px;border-radius:2px;font-size:14.5px;
+    font-variation-settings:"wght" 600;
+    cursor:pointer;text-decoration:none;
+  }
+  .btn:hover{background:var(--accent-deep)}
+  .btn.quiet{background:transparent;color:var(--muted);border-color:var(--line)}
+  .btn.quiet:hover{background:#fff;color:var(--ink)}
+  .btn.small{padding:6px 12px;font-size:13px}
+  .btn[disabled]{opacity:.45;pointer-events:none}
+
+  :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+  /* ---------- file cards ---------- */
+  .filelist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:12px}
+  .card{
+    display:grid;grid-template-columns:76px 1fr auto;gap:16px;align-items:center;
+    background:var(--panel);border:1px solid var(--line);border-radius:3px;padding:14px;
+  }
+  @media (max-width:560px){
+    .card{grid-template-columns:56px 1fr;}
+    .card .actions{grid-column:1 / -1;justify-content:flex-start}
+  }
+  .thumb{
+    width:76px;height:76px;background:var(--checker);
+    border:1px solid var(--line);border-radius:2px;
+    display:grid;place-items:center;overflow:hidden;
+  }
+  @media (max-width:560px){ .thumb{width:56px;height:56px} }
+  .thumb img,.thumb canvas{max-width:100%;max-height:100%;display:block}
+  .name{
+    font-variation-settings:"wght" 600;font-size:15px;
+    margin:0 0 4px;word-break:break-all;
+  }
+  .meta{font-family:var(--mono);font-size:12.5px;color:var(--muted);margin:0}
+  .result{
+    font-family:var(--mono);font-size:12.5px;margin:5px 0 0;color:var(--accent-deep);
+  }
+  .result .delta{color:var(--muted)}
+  .result.grew .delta{color:var(--warn)}
+  .result.error{color:var(--warn)}
+  .reveal{animation:reveal .22s ease both}
+  @keyframes reveal{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:none}}
+  .actions{display:flex;gap:8px;align-items:center}
+  .spinner{
+    width:13px;height:13px;border:2px solid var(--line);border-top-color:var(--accent);
+    border-radius:50%;display:inline-block;vertical-align:-2px;margin-right:6px;
+    animation:spin .7s linear infinite;
+  }
+  @keyframes spin{to{transform:rotate(1turn)}}
+
+  .listhead{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
+  .listhead h3{margin:0}
+
+  footer{margin-top:48px;color:var(--muted);font-size:13px;max-width:62ch}
+  footer a{color:var(--accent-deep)}
+
+  @media (prefers-reduced-motion:reduce){
+    *{animation-duration:.001ms !important;transition-duration:.001ms !important}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="masthead">
+    <h1 class="wordmark">Recast<span class="dot">.</span></h1>
+    <p class="standfirst">Change an image from one format to another. Everything runs in this tab — your files are never uploaded anywhere.</p>
+  </header>
+
+  <section class="stage" id="stage" aria-label="Add images">
+    <h2>Drop images here</h2>
+    <p class="lead">or paste from the clipboard</p>
+    <button class="btn" id="pick">Choose files</button>
+    <p class="formats">Reads PNG, JPEG, WebP, GIF, BMP, TIFF, AVIF and SVG</p>
+    <input type="file" id="file" accept="image/*" multiple hidden autocomplete="off">
+  </section>
+
+  <div class="workbench" id="workbench" hidden>
+
+    <section class="panel">
+      <div class="listhead">
+        <h3 id="count">Files</h3>
+        <button class="btn quiet small" id="clear">Remove all</button>
+      </div>
+      <ul class="filelist" id="list"></ul>
+    </section>
+
+    <aside class="panel side">
+      <h3>Output</h3>
+
+      <div class="field">
+        <label for="target">Convert to</label>
+        <select id="target" autocomplete="off"></select>
+      </div>
+
+      <div class="field" id="qualityField">
+        <div class="rangerow">
+          <label for="quality">Quality</label>
+          <output id="qualityOut" for="quality">82</output>
+        </div>
+        <input type="range" id="quality" min="10" max="100" step="1" value="82" autocomplete="off">
+        <p class="hint">Lower quality means a smaller file and more visible artefacts.</p>
+      </div>
+
+      <div class="field" id="bgField">
+        <label for="bg">Background behind transparency</label>
+        <div class="swatchrow">
+          <input type="color" id="bg" value="#ffffff" autocomplete="off">
+          <span class="hint" style="margin:0">Used where the source is see-through.</span>
+        </div>
+        <p class="hint warn" id="alphaWarn" hidden>Some of your images have transparent areas. This format can’t keep them.</p>
+      </div>
+    </aside>
+
+  </div>
+
+  <footer>
+    <p>Format is detected by reading the first bytes of each file, so a <span style="font-family:var(--mono)">.png</span> that is really a JPEG is still read correctly. Conversion uses your browser’s own image encoder, which is why the available output formats differ a little between browsers.</p>
+    <p>Nothing is saved. Your files sit in this tab’s memory until you convert them, and refreshing or closing the page clears everything — so download what you want before you leave.</p>
+  </footer>
+
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  /* ------------------------------------------------------------------
+     1. Format detection — read magic bytes rather than trusting the name
+  ------------------------------------------------------------------ */
+
+  var SIGNATURES = [
+    { label: "PNG",  mime: "image/png",  test: function (b) {
+        return b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4E && b[3] === 0x47; } },
+    { label: "JPEG", mime: "image/jpeg", test: function (b) {
+        return b[0] === 0xFF && b[1] === 0xD8 && b[2] === 0xFF; } },
+    { label: "GIF",  mime: "image/gif",  test: function (b) {
+        return b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x38; } },
+    { label: "WebP", mime: "image/webp", test: function (b) {
+        return str(b, 0, 4) === "RIFF" && str(b, 8, 4) === "WEBP"; } },
+    { label: "BMP",  mime: "image/bmp",  test: function (b) {
+        return b[0] === 0x42 && b[1] === 0x4D; } },
+    { label: "TIFF", mime: "image/tiff", test: function (b) {
+        return (b[0] === 0x49 && b[1] === 0x49 && b[2] === 0x2A && b[3] === 0x00) ||
+               (b[0] === 0x4D && b[1] === 0x4D && b[2] === 0x00 && b[3] === 0x2A); } },
+    { label: "ICO",  mime: "image/x-icon", test: function (b) {
+        return b[0] === 0 && b[1] === 0 && b[2] === 1 && b[3] === 0; } }
+  ];
+
+  var ISO_BRANDS = {
+    avif: ["AVIF", "image/avif"], avis: ["AVIF", "image/avif"],
+    heic: ["HEIC", "image/heic"], heix: ["HEIC", "image/heic"],
+    hevc: ["HEIC", "image/heic"], heim: ["HEIC", "image/heic"],
+    mif1: ["HEIF", "image/heif"], msf1: ["HEIF", "image/heif"]
+  };
+
+  function str(bytes, offset, length) {
+    var out = "";
+    for (var i = offset; i < offset + length && i < bytes.length; i++) {
+      out += String.fromCharCode(bytes[i]);
+    }
+    return out;
+  }
+
+  function detect(bytes) {
+    for (var i = 0; i < SIGNATURES.length; i++) {
+      if (SIGNATURES[i].test(bytes)) {
+        return { label: SIGNATURES[i].label, mime: SIGNATURES[i].mime };
+      }
+    }
+    if (str(bytes, 4, 4) === "ftyp") {
+      var brand = str(bytes, 8, 4).toLowerCase();
+      if (ISO_BRANDS[brand]) {
+        return { label: ISO_BRANDS[brand][0], mime: ISO_BRANDS[brand][1] };
+      }
+      return { label: "HEIF", mime: "image/heif" };
+    }
+    var head = str(bytes, 0, Math.min(bytes.length, 400));
+    if (head.indexOf("<svg") !== -1 || (head.indexOf("<?xml") !== -1 && head.indexOf("svg") !== -1)) {
+      return { label: "SVG", mime: "image/svg+xml" };
+    }
+    return { label: "Unknown", mime: "" };
+  }
+
+  /* ------------------------------------------------------------------
+     2. Which formats can this browser actually write?
+  ------------------------------------------------------------------ */
+
+  var CANDIDATES = [
+    { mime: "image/png",  label: "PNG",  ext: "png",  lossy: false, alpha: true },
+    { mime: "image/jpeg", label: "JPEG", ext: "jpg",  lossy: true,  alpha: false },
+    { mime: "image/webp", label: "WebP", ext: "webp", lossy: true,  alpha: true },
+    { mime: "image/avif", label: "AVIF", ext: "avif", lossy: true,  alpha: true },
+    { mime: "image/bmp",  label: "BMP",  ext: "bmp",  lossy: false, alpha: false }
+  ];
+
+  function encoderWorks(mime) {
+    var c = document.createElement("canvas");
+    c.width = c.height = 1;
+    try {
+      return c.toDataURL(mime).indexOf("data:" + mime) === 0;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  var FORMATS = CANDIDATES.filter(function (f) {
+    return f.mime === "image/png" || encoderWorks(f.mime);
+  });
+
+  function formatByMime(mime) {
+    for (var i = 0; i < FORMATS.length; i++) {
+      if (FORMATS[i].mime === mime) return FORMATS[i];
+    }
+    return FORMATS[0];
+  }
+
+  /* ------------------------------------------------------------------
+     3. Small helpers
+  ------------------------------------------------------------------ */
+
+  function bytes(n) {
+    if (n < 1024) return n + " B";
+    if (n < 1024 * 1024) return (n / 1024).toFixed(n < 10240 ? 1 : 0) + " KB";
+    return (n / 1048576).toFixed(2) + " MB";
+  }
+
+  function baseName(name) {
+    var dot = name.lastIndexOf(".");
+    return dot > 0 ? name.slice(0, dot) : name;
+  }
+
+  function readHead(file) {
+    return file.slice(0, 64).arrayBuffer().then(function (buf) {
+      return new Uint8Array(buf);
+    });
+  }
+
+  function readAsDataURL(blob) {
+    return new Promise(function (resolve, reject) {
+      var fr = new FileReader();
+      fr.onload = function () { resolve(fr.result); };
+      fr.onerror = function () { reject(fr.error || new Error("read failed")); };
+      fr.readAsDataURL(blob);
+    });
+  }
+
+  function loadImageFromURL(url, revokable) {
+    return new Promise(function (resolve, reject) {
+      var img = new Image();
+      img.onload = function () {
+        resolve({
+          source: img,
+          width: img.naturalWidth || img.width,
+          height: img.naturalHeight || img.height,
+          url: revokable ? url : null
+        });
+      };
+      img.onerror = function () {
+        if (revokable) URL.revokeObjectURL(url);
+        reject(new Error("the browser refused to load this image"));
+      };
+      img.src = url;
+    });
+  }
+
+  // Three strategies, tried in order.
+  //   1. createImageBitmap  — decodes a Blob directly, needs no URL at all.
+  //   2. data: URL          — self-contained, survives strict frame policies.
+  //   3. blob: URL          — cheapest on memory, but blocked by some sandboxes.
+  // Strategy 1 is skipped for SVG, which several browsers refuse to rasterise
+  // through createImageBitmap.
+  function decode(file, mime) {
+    function viaDataURL() {
+      return readAsDataURL(file).then(function (url) {
+        return loadImageFromURL(url, false);
+      });
+    }
+    function viaBlobURL() {
+      return loadImageFromURL(URL.createObjectURL(file), true);
+    }
+
+    if (mime === "image/svg+xml" || typeof window.createImageBitmap !== "function") {
+      return viaDataURL().catch(viaBlobURL);
+    }
+    return createImageBitmap(file)
+      .then(function (bmp) {
+        return { source: bmp, width: bmp.width, height: bmp.height, url: null };
+      })
+      .catch(viaDataURL)
+      .catch(viaBlobURL);
+  }
+
+  // Draw the preview into a canvas element rather than pointing an <img> at a
+  // URL — a canvas in the document is never subject to an img-src policy.
+  function makeThumb(source, w, h) {
+    var max = 160;
+    var scale = Math.min(1, max / Math.max(w, h));
+    var c = document.createElement("canvas");
+    c.width = Math.max(1, Math.round(w * scale));
+    c.height = Math.max(1, Math.round(h * scale));
+    c.getContext("2d").drawImage(source, 0, 0, c.width, c.height);
+    return c;
+  }
+
+  // Sample a downscaled copy to find out whether the image really uses alpha.
+  function hasTransparency(img, w, h) {
+    var size = 48;
+    var c = document.createElement("canvas");
+    c.width = Math.max(1, Math.min(size, w));
+    c.height = Math.max(1, Math.min(size, h));
+    var ctx = c.getContext("2d", { willReadFrequently: true });
+    ctx.drawImage(img, 0, 0, c.width, c.height);
+    try {
+      var data = ctx.getImageData(0, 0, c.width, c.height).data;
+      for (var i = 3; i < data.length; i += 4) {
+        if (data[i] < 250) return true;
+      }
+    } catch (e) { /* tainted canvas — assume opaque */ }
+    return false;
+  }
+
+  /* ------------------------------------------------------------------
+     4. State
+  ------------------------------------------------------------------ */
+
+  var items = [];
+  var seq = 0;
+
+  var el = {
+    stage: document.getElementById("stage"),
+    pick: document.getElementById("pick"),
+    file: document.getElementById("file"),
+    workbench: document.getElementById("workbench"),
+    list: document.getElementById("list"),
+    count: document.getElementById("count"),
+    clear: document.getElementById("clear"),
+    target: document.getElementById("target"),
+    quality: document.getElementById("quality"),
+    qualityOut: document.getElementById("qualityOut"),
+    qualityField: document.getElementById("qualityField"),
+    bg: document.getElementById("bg"),
+    bgField: document.getElementById("bgField"),
+    alphaWarn: document.getElementById("alphaWarn")
+  };
+
+  FORMATS.forEach(function (f) {
+    var o = document.createElement("option");
+    o.value = f.mime;
+    o.textContent = f.label + (f.lossy ? " — smaller, lossy" : " — lossless");
+    el.target.appendChild(o);
+  });
+  el.target.value = "image/png";
+
+  function settings() {
+    return {
+      format: formatByMime(el.target.value),
+      quality: Number(el.quality.value) / 100,
+      bg: el.bg.value
+    };
+  }
+
+  function syncControls() {
+    var f = settings().format;
+    el.qualityField.hidden = !f.lossy;
+    el.bgField.hidden = f.alpha;
+    var anyAlpha = items.some(function (it) { return it.alpha; });
+    el.alphaWarn.hidden = !(anyAlpha && !f.alpha);
+  }
+
+  /* ------------------------------------------------------------------
+     5. Adding files
+  ------------------------------------------------------------------ */
+
+  function add(fileList) {
+    var files = Array.prototype.slice.call(fileList);
+    files.forEach(function (file) {
+      var item = {
+        id: ++seq,
+        file: file,
+        name: file.name || ("pasted-image-" + seq),
+        source: null,
+        img: null,
+        url: null,
+        thumb: null,
+        width: 0,
+        height: 0,
+        alpha: false,
+        state: "reading",
+        blob: null,
+        downloadURL: "",
+        outName: "",
+        error: ""
+      };
+      items.push(item);
+      render();
+
+      readHead(file)
+        .then(function (head) {
+          item.source = detect(head);
+          render();
+          return decode(file, item.source.mime);
+        })
+        .then(function (res) {
+          item.img = res.source;
+          item.url = res.url;
+          item.width = res.width || 0;
+          item.height = res.height || 0;
+          if (!item.width || !item.height) { item.width = 1024; item.height = 1024; }
+          item.alpha = hasTransparency(item.img, item.width, item.height);
+          item.thumb = makeThumb(item.img, item.width, item.height);
+          item.state = "ready";
+          syncControls();
+          render();
+        })
+        .catch(function (err) {
+          console.error("Recast could not read " + item.name, err);
+          var label = item.source ? item.source.label : "";
+          item.state = "error";
+          item.error =
+            (label === "HEIC" || label === "HEIF")
+              ? "Browsers can’t open HEIC. Export it as JPEG or PNG first."
+              : label === "TIFF"
+                ? "Most browsers can’t open TIFF. Convert it to PNG first."
+                : "This file couldn’t be decoded. See the browser console for details.";
+          render();
+        })
+        .then(function () {
+          if (item.state === "ready") return convert(item);
+        });
+    });
+
+    document.body.classList.add("has-files");
+    el.workbench.hidden = false;
+  }
+
+  /* ------------------------------------------------------------------
+     6. Conversion
+  ------------------------------------------------------------------ */
+
+  function convert(item) {
+    if (!item.img) return Promise.resolve();
+    var s = settings();
+    item.state = "working";
+    render();
+
+    return new Promise(function (resolve) {
+      var canvas = document.createElement("canvas");
+      canvas.width = item.width;
+      canvas.height = item.height;
+      var ctx = canvas.getContext("2d");
+
+      if (!s.format.alpha) {
+        ctx.fillStyle = s.bg;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
+      ctx.drawImage(item.img, 0, 0, canvas.width, canvas.height);
+
+      canvas.toBlob(function (blob) {
+        if (!blob) {
+          item.state = "error";
+          item.error = "Your browser couldn’t write a " + s.format.label + " file.";
+          render();
+          resolve();
+          return;
+        }
+        item.blob = blob;
+        item.outFormat = s.format;
+        item.outName = baseName(item.name) + "." + s.format.ext;
+
+        // A data: URL on the download link, for the same sandbox reason as above.
+        readAsDataURL(blob).then(function (url) {
+          item.downloadURL = url;
+        }, function () {
+          item.downloadURL = URL.createObjectURL(blob);
+        }).then(function () {
+          item.state = "done";
+          render();
+          resolve();
+        });
+      }, s.format.mime, s.format.lossy ? s.quality : undefined);
+    });
+  }
+
+  function convertAll() {
+    items.forEach(function (it) {
+      if (it.img) convert(it);
+    });
+  }
+
+  /* ------------------------------------------------------------------
+     7. Rendering
+  ------------------------------------------------------------------ */
+
+  function render() {
+    el.count.textContent = items.length === 1 ? "1 file" : items.length + " files";
+    el.list.textContent = "";
+
+    items.forEach(function (item) {
+      var li = document.createElement("li");
+      li.className = "card";
+
+      var thumb = document.createElement("div");
+      thumb.className = "thumb";
+      if (item.thumb) thumb.appendChild(item.thumb);
+      li.appendChild(thumb);
+
+      var body = document.createElement("div");
+
+      var name = document.createElement("p");
+      name.className = "name";
+      name.textContent = item.name;
+      body.appendChild(name);
+
+      var meta = document.createElement("p");
+      meta.className = "meta";
+      if (item.state === "reading") {
+        meta.textContent = "Reading…";
+      } else {
+        meta.textContent = [
+          item.source ? item.source.label : "Unknown",
+          item.width && item.height ? item.width + " × " + item.height : null,
+          bytes(item.file.size),
+          item.alpha ? "transparent" : null
+        ].filter(Boolean).join("  ·  ");
+      }
+      body.appendChild(meta);
+
+      var result = document.createElement("p");
+      result.className = "result reveal";
+      if (item.state === "working") {
+        result.innerHTML = '<span class="spinner"></span>Converting…';
+        body.appendChild(result);
+      } else if (item.state === "error") {
+        result.className = "result error";
+        result.textContent = item.error;
+        body.appendChild(result);
+      } else if (item.state === "done") {
+        var diff = (item.blob.size - item.file.size) / item.file.size * 100;
+        var sign = diff > 0 ? "+" : "−";
+        if (diff > 0) result.classList.add("grew");
+        result.innerHTML = "→ " + item.outFormat.label + "  ·  " + bytes(item.blob.size) +
+          '  <span class="delta">' + sign + Math.abs(diff).toFixed(0) + "%</span>";
+        body.appendChild(result);
+      }
+
+      li.appendChild(body);
+
+      var actions = document.createElement("div");
+      actions.className = "actions";
+
+      if (item.state === "done") {
+        var dl = document.createElement("a");
+        dl.className = "btn small";
+        dl.textContent = "Download";
+        dl.href = item.downloadURL;
+        dl.download = item.outName;
+        dl.setAttribute("aria-label", "Download " + item.outName);
+        actions.appendChild(dl);
+      }
+
+      var rm = document.createElement("button");
+      rm.className = "btn quiet small";
+      rm.textContent = "Remove";
+      rm.setAttribute("aria-label", "Remove " + item.name);
+      rm.addEventListener("click", function () { remove(item.id); });
+      actions.appendChild(rm);
+
+      li.appendChild(actions);
+      el.list.appendChild(li);
+    });
+  }
+
+  function release(it) {
+    if (it.url) URL.revokeObjectURL(it.url);
+    if (it.downloadURL && it.downloadURL.indexOf("blob:") === 0) URL.revokeObjectURL(it.downloadURL);
+    if (it.img && typeof it.img.close === "function") it.img.close();
+  }
+
+  function remove(id) {
+    items = items.filter(function (it) {
+      if (it.id === id) {
+        release(it);
+        return false;
+      }
+      return true;
+    });
+    if (!items.length) {
+      document.body.classList.remove("has-files");
+      el.workbench.hidden = true;
+    }
+    syncControls();
+    render();
+  }
+
+  /* ------------------------------------------------------------------
+     8. Wiring
+  ------------------------------------------------------------------ */
+
+  el.pick.addEventListener("click", function () { el.file.click(); });
+  el.file.addEventListener("change", function () {
+    if (el.file.files.length) add(el.file.files);
+    el.file.value = "";
+  });
+
+  function clearAll() {
+    items.forEach(release);
+    items = [];
+    seq = 0;
+    document.body.classList.remove("has-files");
+    el.workbench.hidden = true;
+    el.file.value = "";
+    syncControls();
+    render();
+  }
+
+  el.clear.addEventListener("click", clearAll);
+
+  // Nothing survives the page. Release decoded bitmaps and any object URLs when
+  // the page goes away, and wipe the list if the browser hands the page back
+  // from its back/forward cache — where JS state would otherwise still be live.
+  window.addEventListener("pagehide", function () {
+    items.forEach(release);
+  });
+  window.addEventListener("pageshow", function (e) {
+    if (e.persisted) clearAll();
+  });
+
+  ["dragenter", "dragover"].forEach(function (type) {
+    el.stage.addEventListener(type, function (e) {
+      e.preventDefault();
+      el.stage.classList.add("drag");
+    });
+  });
+  ["dragleave", "drop"].forEach(function (type) {
+    el.stage.addEventListener(type, function (e) {
+      e.preventDefault();
+      el.stage.classList.remove("drag");
+    });
+  });
+  el.stage.addEventListener("drop", function (e) {
+    if (e.dataTransfer && e.dataTransfer.files.length) add(e.dataTransfer.files);
+  });
+  window.addEventListener("dragover", function (e) { e.preventDefault(); });
+  window.addEventListener("drop", function (e) { e.preventDefault(); });
+
+  document.addEventListener("paste", function (e) {
+    if (!e.clipboardData) return;
+    var files = Array.prototype.slice.call(e.clipboardData.files);
+    if (files.length) add(files);
+  });
+
+  el.target.addEventListener("change", function () { syncControls(); convertAll(); });
+  el.quality.addEventListener("input", function () { el.qualityOut.value = el.quality.value; });
+  el.quality.addEventListener("change", convertAll);
+  el.bg.addEventListener("change", convertAll);
+
+  syncControls();
+})();
+</script>
+</body>
+</html>
